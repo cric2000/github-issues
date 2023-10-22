@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>GitIssue : Track github issues of any repository</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/vuetify@2.6.3/dist/vuetify.min.css"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/@mdi/font@5.x/css/materialdesignicons.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      #app {
+        font-family: "Montserrat", sans-serif;
+      }
+      .v-alert {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        width: fit-content;
+        min-width: 200px;
+        padding: 20px;
+        transform: translate(-50%, 0%);
+        z-index: 99999;
+        font-weight: bold;
+        text-align: center;
+        font-size: 18px;
+      }
+      .size {
+        font-size: 26px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <v-app>
+        <v-app-bar app color="darken-2" fixed>
+          <v-img
+            src="git.png"
+            max-width="40"
+            max-height="40"
+            style="border-radius: 50%"
+            class="mr-2"
+          ></v-img>
+          <span style="font-weight: bold; font-size: 28px">GitIssue</span>
+        </v-app-bar>
+        <v-main>
+          <v-container fluid>
+            <v-layout align-center justify-center>
+              <v-flex xs12>
+                <h1 class="text-center mt-3 mb-10 size">
+                  Find issues related to any repository
+                </h1>
+                <v-layout align-center justify-center>
+                  <v-flex xs12 sm6>
+                    <v-form @submit.prevent="fetchIssues">
+                      <v-text-field
+                        clearable
+                        v-model="repoName"
+                        label="Enter github repo name"
+                        :rules="[
+                    v => !!v || 'Repo name is required',
+                  ]"
+                        required
+                      ></v-text-field>
+                      <v-text-field
+                        clearable
+                        v-model="ownerName"
+                        label="Enter repo owner name"
+                        :rules="[v => !!v || 'Owner name is required']"
+                        required
+                      ></v-text-field>
+                      <v-btn
+                        color="primary"
+                        @click="fetchIssues"
+                        class="mt-2 mb-2"
+                        >Issue Stats</v-btn
+                      >
+                      <v-btn
+                        color="secondary"
+                        @click="openModal"
+                        class="mt-2 mb-2"
+                        >Open Issue List</v-btn
+                      >
+                    </v-form>
+                  </v-flex>
+                </v-layout>
+              </v-flex>
+            </v-layout>
+            <br />
+            <v-container>
+              <p
+                style="
+                  margin: 0 20px;
+                  font-size: 22px;
+                  font-weight: bold;
+                  word-spacing: 3px;
+                "
+                class="mt-10 mb-4"
+              >
+                Stats for latest issues
+                <span style="color: rgb(206, 187, 187); font-size: 20px"
+                  >( max 1000 )</span
+                >
+              </p>
+              <v-layout align-center justify-center>
+                <v-flex xs12 sm-6>
+                  <v-data-table
+                    v-if="isfetch"
+                    :headers="tableHeaders"
+                    :items="tableData"
+                    :items-per-page="computeItemsPerPage"
+                    class="elevation-1"
+                    style="margin: 0 20px"
+                  >
+                  </v-data-table>
+                  <v-skeleton-loader
+                    :types="{ 
+                  'table-tbody': 'table-row-divider@2',
+                  'table-thead': 'table-column-divider@7'
+                }"
+                    v-else
+                    style="margin: 0 20px"
+                    type="table"
+                  ></v-skeleton-loader>
+                </v-flex>
+              </v-layout>
+            </v-container>
+            <v-alert
+              color="error"
+              title="Error"
+              v-if="error"
+              dismissible
+              class="alert"
+            >
+              {{ error_message }}
+            </v-alert>
+
+            <v-dialog
+              v-model="isModalOpen"
+              persistent
+              style="margin: 0 20px"
+              max-width="900"
+            >
+              <v-card>
+                <v-card-title
+                  class="primary white--text"
+                  style="
+                    border-bottom: 1px solid rgb(102, 102, 102);
+                    position: sticky;
+                    top: 0px;
+                  "
+                >
+                  <span style="font-weight: bold"
+                    >List of Issues with created date</span
+                  >
+                </v-card-title>
+                <v-data-table
+                  v-if="isOpen"
+                  :headers="modalIssueHeaders"
+                  :items="modalIssueData"
+                  :items-per-page="5"
+                  :sort-by="sortBy"
+                  :sort-desc="sortDesc"
+                  @update:sort-by="updateSortBy"
+                  @update:sort-desc="updateSortDesc"
+                >
+                  <template v-slot:item.created_at="{ item }">
+                    {{ formatDate(item.created_at) }}
+                  </template>
+                </v-data-table>
+                <v-skeleton-loader
+                  :types="{ 
+                  'table-tbody': 'table-row-divider@2',
+                  'table-th': 'table-column-divider@3'
+                }"
+                  v-else
+                  type="table"
+                ></v-skeleton-loader>
+                <v-card-actions class="darken-2">
+                  <v-spacer></v-spacer>
+                  <v-btn
+                    text
+                    color="white"
+                    class="secondary"
+                    @click="closeModal"
+                    >Close</v-btn
+                  >
+                </v-card-actions>
+              </v-card>
+            </v-dialog>
+          </v-container>
+        </v-main>
+      </v-app>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@2.6.3/dist/vuetify.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      new Vue({
+        el: "#app",
+        vuetify: new Vuetify({
+          theme: {
+            dark: true,
+          },
+        }),
+
+        data: {
+          repoName: "",
+          page: 1,
+          ownerName: "",
+          error: false,
+          error_message: "",
+          isfetch: true,
+          isOpen: true,
+          issueData: [],
+          modalIssueHeaders: [
+            { text: "Issue Title", value: "title" },
+            { text: "State", value: "state" },
+            { text: "Created At", value: "created_at", sortable: true },
+          ],
+          modalIssueData: [],
+          isModalOpen: false,
+          tableHeaders: [
+            { text: "Week", value: "week" },
+            { text: "Total Issues", value: "total" },
+            { text: "Open Issues (start of week)", value: "openIssues" },
+            { text: "Closed Issues", value: "closedIssues" },
+            { text: "New Issues (created during)", value: "newIssues" },
+            { text: "Ratio (New/Closed)", value: "ratio" },
+            { text: "Weekly Closure Rate ( in % )", value: "closureRate" },
+          ],
+          sortBy: "created_at",
+          sortDesc: true,
+          tableData: [],
+        },
+        computed: {
+          computeItemsPerPage() {
+            if (this.tableData.length >= 5) {
+              return 5;
+            } else {
+              return this.tableData.length;
+            }
+          },
+        },
+
+        mounted() {
+          this.sortBy = "created_at";
+          this.sortDesc = true;
+        },
+
+        methods: {
+          formatDate(date) {
+            const [day, month, year] = date.split("/");
+            return new Date(year, month - 1, day).toLocaleDateString();
+          },
+          updateSortBy(value) {
+            this.sortBy = value;
+          },
+          updateSortDesc(value) {
+            this.sortDesc = value;
+          },
+
+          showErrorMessage(message) {
+            this.error = true;
+            this.error_message = message;
+            setTimeout(() => {
+              this.error = false;
+            }, 4000);
+          },
+          async checkResponse(allResponses, bool) {
+            const results = [];
+
+            for (const responseInfo of allResponses) {
+              const response = responseInfo.data;
+              const status = responseInfo.status;
+
+              if (status === 200) {
+                try {
+                  if (bool === true) {
+                    this.isModalOpen = true;
+                    this.isOpen = false;
+                  } else {
+                    this.isfetch = false;
+                  }
+                  results.push(response);
+                } catch (error) {
+                  this.showErrorMessage(
+                    "Error parsing JSON data from the response"
+                  );
+                  results.push(Promise.reject(error));
+                }
+              } else if (status === 404) {
+                this.showErrorMessage(
+                  "Please check that both repo and owner name are correct"
+                );
+                results.push(
+                  Promise.reject(
+                    "Please check that both repo and owner name are correct"
+                  )
+                );
+              } else if (status === 401) {
+                this.showErrorMessage(
+                  "You are unauthorized to perform this action"
+                );
+                results.push(
+                  Promise.reject("You are unauthorized to perform this action")
+                );
+              } else {
+                this.showErrorMessage(`Error: Response status ${status}`);
+                results.push(
+                  Promise.reject(`Error: Response status ${status}`)
+                );
+              }
+            }
+
+            return results;
+          },
+
+          async fetchIssuesPerPage(owner, repoName, headers, page, perPage) {
+            try {
+              const response = await fetch(
+                `https://api.github.com/repos/${owner}/${repoName}/issues?per_page=${perPage}&page=${page}&state=all`,
+                {
+                  method: "GET",
+                  headers: headers,
+                }
+              );
+
+              if (!response.ok) {
+                throw new Error(
+                  `Failed to fetch data Status ${response.status} ${response.statusText} Please verify repo and owner name`
+                );
+              }
+
+              const data = await response.json();
+              const status = response.status;
+
+              return { data, status };
+            } catch (error) {
+              throw error;
+            }
+          },
+
+          async fetchUpTo1000Issues(owner, repoName, headers) {
+            let page = 1;
+            let allResponses = [];
+
+            try {
+              while (page <= 10) {
+                const { data, status } = await this.fetchIssuesPerPage(
+                  owner,
+                  repoName,
+                  headers,
+                  page,
+                  100
+                );
+
+                allResponses.push({ data, status });
+
+                if (status !== 200) {
+                  throw new Error(`Failed to fetch data. Status ${status}`);
+                }
+
+                if (data.length === 0) {
+                  break;
+                }
+                page++;
+              }
+            } catch (error) {
+              throw error;
+            }
+
+            return allResponses;
+          },
+
+          async fetchDetails(owner, repoName, bool) {
+            if (bool === true) {
+              this.isOpen = false;
+              this.isModalOpen = true;
+            } else {
+              this.isfetch = false;
+            }
+
+            if (
+              !owner ||
+              !repoName ||
+              owner.length === 0 ||
+              repoName.length === 0
+            ) {
+              this.isModalOpen = false;
+              this.showErrorMessage("Repo or owner name can't be empty");
+              return Promise.reject("Repo or owner name can't be empty");
+              this.isfetch = true;
+              this.isOpen = true;
+            }
+
+            if (owner.length > 39 && repoName.length > 100) {
+              this.isfetch = true;
+              this.isOpen = true;
+              this.isModalOpen = false;
+              this.showErrorMessage(
+                "Owner name cannot exceed 39 characters and repo name cannot exceed 100 characters"
+              );
+              return Promise.reject(
+                "Owner name cannot exceed 39 characters and repo name cannot exceed 100 characters"
+              );
+            }
+
+            if (owner.length > 39) {
+              this.isfetch = true;
+              this.isOpen = true;
+              this.isModalOpen = false;
+              this.showErrorMessage("Owner name cannot exceed 39 characters");
+              return Promise.reject("Owner name cannot exceed 39 characters");
+            }
+
+            if (repoName.length > 100) {
+              this.isfetch = true;
+              this.isOpen = true;
+              this.isModalOpen = false;
+              this.showErrorMessage("Repo name cannot exceed 100 characters");
+              return Promise.reject("Repo name cannot exceed 100 characters");
+            }
+
+            owner = owner.trim(); 
+            repoName = repoName.trim(); 
+// specify your own github private access token in the code
+            const token =
+              "";
+            const headers = new Headers({
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${token}`,
+              "X-GitHub-Api-Version": "2022-11-28",
+            });
+
+            const firstPage = await this.fetchUpTo1000Issues(
+              owner,
+              repoName,
+              headers
+            );
+
+            return firstPage;
+          },
+          fetchIssues() {
+            this.issueData = [];
+            this.tableData = [];
+            this.fetchDetails(this.ownerName, this.repoName, false)
+              .then((response) => {
+                return this.checkResponse(response, false);
+              })
+              .then((issues) => {
+                const mergedIssues = [].concat(...issues);
+                this.calculateTableData(mergedIssues);
+                this.isfetch = true;
+              })
+              .catch((error) => {
+                this.showErrorMessage(error);
+                this.isfetch = true;
+                return Promise.reject(error);
+              });
+          },
+          openModal() {
+            this.modalIssueData = [];
+            this.fetchDetails(this.ownerName, this.repoName, true)
+              .then((response) => {
+                return this.checkResponse(response, true);
+              })
+              .then((issues) => {
+                const mergedIssues = [].concat(...issues);
+                if (Array.isArray(mergedIssues)) {
+                  const formattedIssues = mergedIssues.map((issue) => ({
+                    title: issue.title,
+                    state: issue.state,
+                    created_at: new Date(issue.created_at).toLocaleDateString(
+                      "en-GB",
+                      {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      }
+                    ),
+                  }));
+
+                  formattedIssues.sort(
+                    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+                  );
+
+                  this.modalIssueData = formattedIssues;
+
+                  this.isOpen = true;
+                } else {
+                  this.showErrorMessage("Response is undefined");
+                  return Promise.reject("Response is undefined");
+                }
+              })
+              .catch((error) => {
+                this.showErrorMessage(error);
+                this.isOpen = true;
+                return Promise.reject(error);
+              });
+          },
+          closeModal() {
+            this.isModalOpen = false;
+          },
+          calculateTableData(mergedIssues) {
+            if (!Array.isArray(mergedIssues)) {
+              this.showErrorMessage(
+                "Invalid data format received from the API"
+              );
+              return Promise.reject(
+                "Invalid data format received from the API"
+              );
+            }
+
+            const weekData = {};
+
+            mergedIssues.forEach((issue) => {
+              const createdAt = new Date(issue.created_at);
+              const weekNumber = this.getWeekNumber(createdAt);
+
+              if (!weekData[weekNumber]) {
+                weekData[weekNumber] = {
+                  open: 0,
+                  closed: 0,
+                  new: 0,
+                  weekStartDate: createdAt,
+                };
+              }
+
+              if (
+                issue.state === "open" &&
+                createdAt.getTime() ===
+                  weekData[weekNumber].weekStartDate.getTime()
+              ) {
+                weekData[weekNumber].open++;
+              } else if (issue.state === "closed") {
+                weekData[weekNumber].closed++;
+              } else {
+                weekData[weekNumber].new++;
+              }
+            });
+
+            const tableData = [];
+
+            for (const weekNumber in weekData) {
+              if (weekData.hasOwnProperty(weekNumber)) {
+                const week = weekData[weekNumber];
+                const closureRate = this.calculateClosureRate(week);
+                const ratio = `${week.new}:${week.closed}`;
+                const total = week.open + week.closed + week.new;
+                tableData.push({
+                  week: weekNumber,
+                  openIssues: week.open,
+                  closedIssues: week.closed,
+                  newIssues: week.new,
+                  ratio: ratio,
+                  total: total,
+                  closureRate: closureRate,
+                });
+              }
+            }
+
+            this.tableData = tableData;
+          },
+          calculateClosureRate(week) {
+            const closureRate = (week.closed / (week.open + week.new)) * 100;
+            return closureRate.toFixed(2);
+          },
+          getWeekNumber(date) {
+            const currentDate = new Date(date);
+            currentDate.setHours(0, 0, 0, 0);
+            currentDate.setDate(
+              currentDate.getDate() + 3 - ((currentDate.getDay() + 6) % 7)
+            );
+            const week1 = new Date(currentDate.getFullYear(), 0, 4);
+            return (
+              1 +
+              Math.round(
+                ((currentDate - week1) / 86400000 -
+                  3 +
+                  ((week1.getDay() + 6) % 7)) /
+                  7
+              )
+            );
+          },
+        },
+      });
+    </script>
+  </body>
+</html>
