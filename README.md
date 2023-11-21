@@ -1,6 +1,6 @@
 # Github Issues
 
-List issues of any repository and generate stats related to it
+List issues of any repository and generate stats related to it, created using the GitHub API and styled with Vuetify.
 
 ## Demo
 
