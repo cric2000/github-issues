@@ -14,3 +14,7 @@ To get a local copy up and running, follow these steps:
 
    ```sh
    git clone https://github.com/cric2000/github-issues
+2. Open `index.html` and specify your GitHub token at line 440: 
+   ```sh 
+   const token = "your_github_token";
+3. Save changes and open the HTML file in a browser.
